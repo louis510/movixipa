@@ -1,9 +1,9 @@
 import SwiftUI
+import UIKit
 
-/// Reusable blur view that mimics the macOS/tvOS "visual effect" (liquid glass).
 struct VisualEffectBlur: UIViewRepresentable {
-    var blurStyle: UIBlurEffect.Style = .systemMaterialDark
-    var intensity: CGFloat = 0.5 // 0‑1 – controls how strong the blur looks
+    var blurStyle: UIBlurEffect.Style = .dark // Remplacé car systemMaterialDark est indisponible sur tvOS
+    var intensity: CGFloat = 0.5
 
     func makeUIView(context: Context) -> UIVisualEffectView {
         let view = UIVisualEffectView(effect: UIBlurEffect(style: blurStyle))

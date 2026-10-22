@@ -61,7 +61,6 @@ struct DetailView: View {
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
         .onDisappear { player?.pause() }
     }
 

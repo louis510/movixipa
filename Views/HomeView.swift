@@ -4,6 +4,9 @@ import Combine
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     private let gridItem = GridItem(.fixed(380), spacing: 30)
+    
+    // Suivi de l'élément actuellement focalisé dans la grille
+    @FocusState private var focusedMovieId: String?
 
     var body: some View {
         ZStack {
@@ -28,8 +31,11 @@ struct HomeView: View {
                     ForEach(viewModel.movies) { movie in
                         MovieCardView(movie: movie, isFocused: viewModel.focusedMovie?.id == movie.id)
                             .focusable(true)
-                            .onFocusChange { focused in
-                                if focused { viewModel.focusedMovie = movie }
+                            .focused($focusedMovieId, equals: movie.id)
+                            .onChange(of: focusedMovieId) { newFocusedId in
+                                if newFocusedId == movie.id {
+                                    viewModel.focusedMovie = movie
+                                }
                             }
                     }
                 }
