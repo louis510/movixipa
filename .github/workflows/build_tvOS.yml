@@ -41,13 +41,11 @@ jobs:
         run: |
           mkdir -p Payload/MovixTV.app
           
-          # Recherche universelle du binaire exécutable généré dans le dossier x86_64-apple-tvos-simulator/debug
-          # (on prend le premier fichier exécutable sans extension trouvé)
-          BINARY_PATH=$(find .build/x86_64-apple-tvos-simulator/debug -maxdepth 1 -type f ! -name "*.*" | head -n 1)
+          # Le binaire exécutable généré pour l'application
+          BINARY_PATH=".build/x86_64-apple-tvos-simulator/debug/MovixTV"
           
-          if [ -z "$BINARY_PATH" ]; then
-            echo "Erreur: Aucun binaire exécutable trouvé dans le dossier de build"
-            find .build -type f
+          if [ ! -f "$BINARY_PATH" ]; then
+            echo "Erreur: Binaire MovixTV introuvable à $BINARY_PATH"
             exit 1
           fi
           

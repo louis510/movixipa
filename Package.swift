@@ -1,6 +1,4 @@
 // swift-tools-version: 5.9
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
 import PackageDescription
 
 let package = Package(
@@ -9,13 +7,13 @@ let package = Package(
         .tvOS(.v17)
     ],
     products: [
-        .library(
+        .executable(
             name: "MovixTV",
             targets: ["MovixTV"]
         ),
     ],
     targets: [
-        .target(
+        .executableTarget(
             name: "MovixTV",
             path: "."
         )
