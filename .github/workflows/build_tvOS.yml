@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-tvos:
-    name: Build tvOS Package
+    name: Build tvOS Package (.ipa)
     runs-on: macos-latest
 
     steps:
@@ -25,13 +25,32 @@ jobs:
         run: |
           swift build --sdk $(xcrun --sdk appletvsimulator --show-sdk-path) --triple x86_64-apple-tvos-simulator
 
-      - name: Préparer les artefacts de build
+      - name: Créer le fichier .ipa non signé
         run: |
+          # Créer la structure Payload requise pour un .ipa
+          mkdir -p Payload/MovixTV.app
+          
+          # Récupérer le binaire compilé (le chemin dépend de la triple cible)
+          # On cherche dynamiquement l'exécutable généré dans .build
+          BINARY_PATH=$(find .build -name "MovixTV" -type f | grep -E "debug|release" | head -n 1)
+          
+          if [ -z "$BINARY_PATH" ]; then
+            echo "Erreur: Binaire MovixTV introuvable dans .build"
+            exit 1
+          fi
+          
+          echo "Binaire trouvé à : $BINARY_PATH"
+          cp "$BINARY_PATH" Payload/MovixTV.app/MovixTV
+          
+          # Créer l'archive .ipa (qui est un zip du dossier Payload)
+          zip -r MovixTV.ipa Payload
+          
+          # Préparer un dossier propre pour l'upload
           mkdir -p build_output
-          cp -R .build/* build_output/
+          mv MovixTV.ipa build_output/
 
-      - name: Sauvegarder les fichiers compilés
+      - name: Sauvegarder l'artefact .ipa
         uses: actions/upload-artifact@v4
         with:
-          name: MovixTV-Build-Output
-          path: build_output/
+          name: MovixTV-IPA
+          path: build_output/MovixTV.ipa
