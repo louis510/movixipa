@@ -1,55 +1,259 @@
-name: Build Movix tvOS App
+name: iOS IPA non signé
 
 on:
-  push:
-    branches: [ "main", "master" ]
+  workflow_dispatch:
   pull_request:
-    branches: [ "main", "master" ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/ios-unsigned.yml'
+  push:
+    tags:
+      - 'ios-v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-tvos:
-    name: Build tvOS Package (.ipa)
-    runs-on: macos-latest
+  build:
+    name: Compiler et empaqueter l'IPA non signée
+    runs-on: macos-26
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.artifact.outputs.version }}
+      build_number: ${{ steps.artifact.outputs.build_number }}
+      min_os: ${{ steps.validate.outputs.min_os }}
 
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Configurer Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
 
-      - name: Vérifier l'environnement Swift
-        run: swift --version
+      - name: Mettre en cache les dépendances JavaScript installées
+        id: node-modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: app/node_modules
+          key: ios-node-modules-${{ hashFiles('app/package-lock.json', 'app/patches/**') }}
 
-      - name: Compiler pour tvOS (Simulator)
+      - name: Installer les dépendances JavaScript
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        working-directory: app
+        run: npm ci
+
+      - name: Générer le script utilisateur injecté
+        working-directory: app
+        run: npm run build:userscript
+
+      - name: Résoudre la version de l'artefact
+        id: artifact
+        working-directory: app
         run: |
-          swift build --sdk $(xcrun --sdk appletvsimulator --show-sdk-path) --triple x86_64-apple-tvos-simulator
-
-      - name: Créer le fichier .ipa non signé
-        run: |
-          # Créer la structure Payload requise pour un .ipa
-          mkdir -p Payload/MovixTV.app
-          
-          # Recherche dynamique du binaire compilé dans tout le dossier .build
-          BINARY_PATH=$(find .build -name "MovixTV" -type f | grep -E "debug|release" | head -n 1)
-          
-          if [ -z "$BINARY_PATH" ]; then
-            echo "Erreur: Binaire MovixTV introuvable dans .build"
+          VERSION="$(node -p "require('./app.json').version")"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "app.json version is not a bare semantic version: $VERSION" >&2
             exit 1
           fi
-          
-          echo "Binaire trouvé à : $BINARY_PATH"
-          cp "$BINARY_PATH" Payload/MovixTV.app/MovixTV
-          
-          # Créer l'archive .ipa (qui est un ZIP du dossier Payload)
-          zip -r MovixTV.ipa Payload
-          
-          # Préparer un dossier propre pour l'upload
-          mkdir -p build_output
-          mv MovixTV.ipa build_output/
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          BUILD_NUMBER="$(node -p "require('./app.json').buildNumber")"
+          if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "app.json buildNumber n'est pas un entier simple : $BUILD_NUMBER" >&2
+            exit 1
+          fi
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
-      - name: Sauvegarder l'artefact .ipa
-        uses: actions/upload-artifact@v4
+      - name: Cache CocoaPods et objets de construction
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          name: MovixTV-IPA
-          path: build_output/MovixTV.ipa
+          path: |
+            app/ios/Pods
+            app/ios/build/generated
+            app/build/dd-simulator
+            app/build/dd
+          key: ios-${{ hashFiles('app/ios/Podfile', 'app/package-lock.json', 'app/patches/**') }}-${{ github.sha }}
+          restore-keys: |
+            ios-${{ hashFiles('app/ios/Podfile', 'app/package-lock.json', 'app/patches/**') }}-
+            ios-
+
+      - name: Installer les dépendances CocoaPods
+        working-directory: app/ios
+        run: pod install
+
+      - name: Téléverser le fichier Podfile.lock résolu
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Movix-Podfile-lock-${{ steps.artifact.outputs.version }}-${{ github.run_number }}
+          path: app/ios/Podfile.lock
+          if-no-files-found: error
+
+      - name: Vérifier le comportement des métadonnées du paquet et du pont multimédia
+        working-directory: app
+        run: |
+          node --test \
+            tests/unsignedIpaWorkflow.test.mjs \
+            tests/mediaProxyRouting.test.mjs \
+            tests/mediaProxyRuntime.test.mjs \
+            tests/mediaProxyBridgeContract.test.mjs
+
+      - name: Sélectionnez un simulateur d'iPhone disponible
+        id: simulator
+        run: |
+          UDID="$(xcrun simctl list devices available \
+            | grep -E '^[[:space:]]+iPhone' \
+            | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}' \
+            | head -n 1)"
+          if [ -z "$UDID" ]; then
+            echo "Aucun simulateur iPhone disponible sur ce runner" >&2
+            exit 1
+          fi
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Compiler pour le simulateur
+        working-directory: app/ios
+        run: |
+          xcodebuild build \
+            -workspace Movix.xcworkspace \
+            -scheme Movix \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath "$GITHUB_WORKSPACE/app/build/dd-simulator" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Compiler le binaire non signé du périphérique
+        working-directory: app/ios
+        run: |
+          xcodebuild build \
+            -workspace Movix.xcworkspace \
+            -scheme Movix \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/app/build/dd" \
+            MARKETING_VERSION=${{ steps.artifact.outputs.version }} \
+            CURRENT_PROJECT_VERSION=${{ steps.artifact.outputs.build_number }} \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            CODE_SIGN_ENTITLEMENTS=
+
+      - name: Paquet IPA non signé
+        working-directory: app
+        env:
+          IOS_APP_PATH: build/dd/Build/Products/Release-iphoneos/Movix.app
+          IOS_OUTPUT_DIR: build/unsigned-ipa
+        run: bash scripts/package-unsigned-ios.sh
+
+      - name: Valider l'IPA non signée
+        id: validate
+        working-directory: app
+        run: |
+          APP="build/dd/Build/Products/Release-iphoneos/Movix.app"
+          PAYLOAD="build/unsigned-ipa/Payload/Movix.app"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")"
+          echo "min_os=$MIN_OS" >> "$GITHUB_OUTPUT"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "${{ steps.artifact.outputs.version }}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "${{ steps.artifact.outputs.build_number }}"
+          lipo -archs "$APP/Movix" | tr ' ' '\n' | grep -qw arm64
+          test ! -e "$PAYLOAD/_CodeSignature"
+          test ! -e "$PAYLOAD/embedded.mobileprovision"
+          unzip -t build/unsigned-ipa/Movix-unsigned.ipa
+          (cd build/unsigned-ipa && shasum -a 256 -c Movix-unsigned.ipa.sha256)
+
+      - name: Téléverser le fichier IPA non signé
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Movix-unsigned-${{ steps.artifact.outputs.version }}-${{ github.run_number }}
+          path: |
+            app/build/unsigned-ipa/Movix-unsigned.ipa
+            app/build/unsigned-ipa/Movix-unsigned.ipa.sha256
+          if-no-files-found: error
+
+  version:
+    name: Publier l'IPA non signée et étiquetée
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/ios-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Movix-unsigned-${{ needs.build.outputs.version }}-${{ github.run_number }}
+          path: dist
+
+      - name: Vérifier la somme de contrôle avant publication
+        working-directory: dist
+        run: shasum -a 256 -c Movix-unsigned.ipa.sha256
+
+      - name: Générer les sources AltStore, SideStore et Scarlet
+        env:
+          IOS_SOURCE_VERSION: ${{ needs.build.outputs.version }}
+          IOS_SOURCE_BUILD_NUMBER: ${{ needs.build.outputs.build_number }}
+          IOS_SOURCE_MIN_OS: ${{ needs.build.outputs.min_os }}
+          IOS_SOURCE_IPA_PATH: dist/Movix-unsigned.ipa
+          IOS_SOURCE_DATE: ${{ github.event.head_commit.timestamp }}
+          IOS_SOURCE_DOWNLOAD_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch }}/app/movix-ios-unsigner.ipa
+          IOS_SOURCE_ICON_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch }}/app/ios/Movix/Images.xcassets/AppIcon.appiconset/icon-1024.png
+          IOS_SOURCE_NOTES_URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+          IOS_SOURCE_OUTPUT: app/movix-ios-source.json
+          IOS_SCARLET_OUTPUT: app/movix-scarlet-source.json
+        run: node app/scripts/generate-ios-source.mjs
+
+      - name: Intégrer le fichier IPA à côté de la version Android
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          install -m 644 dist/Movix-unsigned.ipa app/movix-ios-unsigner.ipa
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- app/movix-ios-unsigner.ipa app/movix-ios-source.json app/movix-scarlet-source.json
+          if git diff --cached --quiet; then
+            echo "IPA et sources identiques à celles déjà publiées, rien à committer."
+            exit 0
+          fi
+          git commit -F - <<EOF
+          build(ios): publier l'IPA non signée ${{ needs.build.outputs.version }}
+          Généré par le workflow ios-unsigned depuis le tag ${GITHUB_REF_NAME}.
+          L'archive est identique à celle attachée à la release et a été
+          vérifiée par son empreinte SHA-256 avant d'être indexée.
+          Les sources des stores (app/movix-ios-source.json pour AltStore et
+          SideStore, app/movix-scarlet-source.json pour Scarlet) sont
+          régénérées dans le même commit : version, taille et URL restent
+          cohérents avec le service IPA par raw.githubusercontent.
+          Co-écrit par : github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          EOF
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${DEFAULT_BRANCH}"; then
+              exit 0
+            fi
+            git pull --rebase origin "${DEFAULT_BRANCH}"
+          done
+          echo "Impossible de pousser l'IPA sur ${DEFAULT_BRANCH}" >&2
+          exit 1
+
+      - name: Créer la version
+        working-directory: dist
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            Movix-unsigned.ipa \
+            Movix-unsigned.ipa.sha256 \
+            --title "Movix ${{ needs.build.outputs.version }} (iOS, non signé)" \
+            --notes "IPA non signee. Son installation est impossible tant qu'un utilisateur ne l'a pas signé par ses propres moyens. Vérifiez l'archive avec: shasum -a 256 -c Movix-unsigned.ipa.sha256 — Source AltStore/SideStore : https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch }}/app/movix-ios-source.json — Source Scarlet : https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.repository.default_branch }}/app/movix-scarlet-source.json"
