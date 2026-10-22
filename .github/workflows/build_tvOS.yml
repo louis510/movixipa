@@ -30,11 +30,11 @@ jobs:
           # Créer la structure Payload requise pour un .ipa
           mkdir -p Payload/MovixTV.app
           
-          # Chemin direct et précis du binaire généré pour le simulateur tvOS
-          BINARY_PATH=".build/x86_64-apple-tvos-simulator/debug/MovixTV"
+          # Recherche dynamique du binaire compilé dans tout le dossier .build
+          BINARY_PATH=$(find .build -name "MovixTV" -type f | grep -E "debug|release" | head -n 1)
           
-          if [ ! -f "$BINARY_PATH" ]; then
-            echo "Erreur: Binaire introuvable à $BINARY_PATH"
+          if [ -z "$BINARY_PATH" ]; then
+            echo "Erreur: Binaire MovixTV introuvable dans .build"
             exit 1
           fi
           
