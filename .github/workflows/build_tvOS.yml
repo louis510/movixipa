@@ -8,6 +8,7 @@ on:
       - 'Package.swift'
       - '.github/workflows/build_tvOS.yml'
   push:
+    branches: [ "main", "master" ]
     tags:
       - 'tvos-v*'
 
@@ -40,11 +41,13 @@ jobs:
         run: |
           mkdir -p Payload/MovixTV.app
           
-          # Recherche dynamique du binaire compilé
-          BINARY_PATH=$(find .build -name "MovixTV" -type f | grep -E "debug|release" | head -n 1)
+          # Recherche universelle du binaire exécutable généré dans le dossier x86_64-apple-tvos-simulator/debug
+          # (on prend le premier fichier exécutable sans extension trouvé)
+          BINARY_PATH=$(find .build/x86_64-apple-tvos-simulator/debug -maxdepth 1 -type f ! -name "*.*" | head -n 1)
           
           if [ -z "$BINARY_PATH" ]; then
-            echo "Erreur: Binaire MovixTV introuvable dans .build"
+            echo "Erreur: Aucun binaire exécutable trouvé dans le dossier de build"
+            find .build -type f
             exit 1
           fi
           
