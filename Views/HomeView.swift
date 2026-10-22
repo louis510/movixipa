@@ -5,7 +5,8 @@ struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     private let gridItem = GridItem(.fixed(380), spacing: 30)
     
-    @FocusState private var focusedMovieId: String?
+    // Changé en Int? pour correspondre au type de movie.id
+    @FocusState private var focusedMovieId: Int?
 
     var body: some View {
         ZStack {
@@ -40,7 +41,7 @@ struct HomeView: View {
 struct MovieItemView: View {
     let movie: Movie
     @ObservedObject var viewModel: HomeViewModel
-    var focusedMovieId: FocusState<String?>.Binding
+    var focusedMovieId: FocusState<Int?>.Binding
 
     var body: some View {
         let isFocused = viewModel.focusedMovie?.id == movie.id
