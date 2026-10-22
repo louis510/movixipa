@@ -24,3 +24,10 @@ jobs:
       - name: Compiler pour tvOS (Simulator)
         run: |
           swift build --sdk $(xcrun --sdk appletvsimulator --show-sdk-path) --triple x86_64-apple-tvos-simulator
+
+      # --- AJOUTE CETTE ÉTAPE ICI ---
+      - name: Sauvegarder les fichiers compilés
+        uses: actions/upload-artifact@v4
+        with:
+          name: MovixTV-Build-Output
+          path: .build/
