@@ -19,7 +19,7 @@ struct MovieCardView: View {
             }
 
             // Liquid‑glass overlay
-            VisualEffectBlur(blurStyle: .systemMaterialDark, intensity: isFocused ? 0.45 : 0.3)
+            VisualEffectBlur(blurStyle: .dark, intensity: isFocused ? 0.45 : 0.3)
                 .frame(height: 120)
                 .overlay(
                     VStack(alignment: .leading, spacing: 4) {
