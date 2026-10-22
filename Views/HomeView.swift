@@ -5,12 +5,10 @@ struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     private let gridItem = GridItem(.fixed(380), spacing: 30)
     
-    // Suivi de l'élément actuellement focalisé dans la grille
     @FocusState private var focusedMovieId: String?
 
     var body: some View {
         ZStack {
-            // Background – blurred backdrop of the currently focused movie
             if let backdrop = viewModel.focusedMovie?.backdropURL {
                 AsyncImage(url: backdrop) { image in
                     image
@@ -25,18 +23,10 @@ struct HomeView: View {
                 Color.black.ignoresSafeArea()
             }
 
-            // Carousel of movie cards
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(rows: [gridItem], spacing: 40) {
                     ForEach(viewModel.movies) { movie in
-                        MovieCardView(movie: movie, isFocused: viewModel.focusedMovie?.id == movie.id)
-                            .focusable(true)
-                            .focused($focusedMovieId, equals: movie.id)
-                            .onChange(of: focusedMovieId) { newFocusedId in
-                                if newFocusedId == movie.id {
-                                    viewModel.focusedMovie = movie
-                                }
-                            }
+                        MovieItemView(movie: movie, viewModel: viewModel, focusedMovieId: $focusedMovieId)
                     }
                 }
                 .padding(.horizontal, 80)
@@ -44,5 +34,23 @@ struct HomeView: View {
             }
         }
         .onAppear { viewModel.loadMovies() }
+    }
+}
+
+struct MovieItemView: View {
+    let movie: Movie
+    @ObservedObject var viewModel: HomeViewModel
+    var focusedMovieId: FocusState<String?>.Binding
+
+    var body: some View {
+        let isFocused = viewModel.focusedMovie?.id == movie.id
+        MovieCardView(movie: movie, isFocused: isFocused)
+            .focusable(true)
+            .focused(focusedMovieId, equals: movie.id)
+            .onChange(of: focusedMovieId.wrappedValue) { newId in
+                if newId == movie.id {
+                    viewModel.focusedMovie = movie
+                }
+            }
     }
 }
