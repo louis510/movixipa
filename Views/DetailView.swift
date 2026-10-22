@@ -130,16 +130,3 @@ struct MovieCardView: View {
         .shadow(color: .black.opacity(isFocused ? 0.6 : 0.35), radius: isFocused ? 18 : 10, x: 0, y: 3)
     }
 }
-```[cite: 3]
-
----
-
-### Comment tout valider ?
-
-Une fois ces modifications enregistrées dans tes fichiers sous Windows, exécute ces commandes dans ton PowerShell :
-
-```powershell
-cd C:\Users\boulo\Downloads\MovixTV
-git add .
-git commit -m "Fix final UIBlurEffect styles for tvOS compatibility"
-git push origin main
