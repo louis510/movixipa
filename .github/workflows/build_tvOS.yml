@@ -1,68 +1,27 @@
-name: Build tvOS IPA (unsigned)
+name: Build Movix tvOS App
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - 'MovixTV/**'
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
 
 jobs:
-  build:
+  build-tvos:
+    name: Build tvOS Package
     runs-on: macos-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout du code
         uses: actions/checkout@v4
-        with:
-          path: MovixTV
 
-      - name: Set up Xcode
+      - name: Configurer Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Vérifier l'environnement Swift
+        run: swift --version
+
+      - name: Compiler pour tvOS (Simulator)
         run: |
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-
-      - name: Install dependencies (if any)
-        working-directory: MovixTV
-        run: |
-          # If you use Swift Package Manager you can resolve here
-          swift package resolve
-
-      - name: Build tvOS archive
-        working-directory: MovixTV
-        run: |
-          xcodebuild -scheme MovixTV -sdk tvos -configuration Release \
-            -archivePath ${{ runner.temp }}/MovixTV.xcarchive archive
-
-      - name: Export unsigned IPA
-        working-directory: MovixTV
-        run: |
-          # ExportOptions.plist tells Xcode to produce an unsigned package
-          cat > ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>stripSwiftSymbols</key>
-            <false/>
-            <key>compileBitcode</key>
-            <false/>
-            <key>teamID</key>
-            <string>$(TEAM_ID)</string>
-            <key>provisioningProfiles</key>
-            <dict/>
-          </dict>
-          </plist>
-          EOF
-
-          xcodebuild -exportArchive \
-            -archivePath ${{ runner.temp }}/MovixTV.xcarchive \
-            -exportPath ${{ runner.temp }}/exported \
-            -exportOptionsPlist ExportOptions.plist
-
-      - name: Upload unsigned IPA as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: MovixTV-unsigned-ipa
-          path: ${{ runner.temp }}/exported/*.ipa
+          cd MovixTV
+          swift build -Xswiftc -sdk -Xswiftc $(xcrun --sdk appletvsimulator --show-sdk-path) -Xswiftc -target -Xswiftc x86_64-apple-tvos-simulator
